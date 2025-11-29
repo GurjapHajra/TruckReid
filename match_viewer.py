@@ -4,7 +4,7 @@ from PIL import Image, ImageTk, ImageDraw, ImageFont
 import os
 
 # --- CONFIGURATION ---
-FILE_PATH = "results.txt"  # Your text file name
+FILE_PATH = "results1.txt"  # Your text file name
 IMAGE_DIR = "TruckReidDataset"  # Directory where the 'train' folder is located
 
 
