@@ -339,7 +339,6 @@ class TruckGalleryApp:
 
 # --- 3. Data & Run ---
 if __name__ == "__main__":
-    # REPLACE THIS WITH YOUR REAL DATA
     raw_data_res = read_results("results1.txt")
     group_data = remove_singles(
         solve_truck_grouping_max_size_similarity(
