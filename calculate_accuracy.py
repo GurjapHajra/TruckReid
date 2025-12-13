@@ -1,7 +1,7 @@
 import networkx as nx
 from networkx.algorithms import community
 import community.community_louvain as community_louvain
-
+import itertools
 import tkinter as tk
 from tkinter import ttk, font
 from PIL import Image, ImageTk, ImageDraw  # Requires: pip install pillow
@@ -36,6 +36,8 @@ def read_train(train_path):
     with open(train_path, "r") as f:
         for line in f:
             parts = line.strip().split(",")
+            if len(parts) < 4:
+                continue
             reid = parts[1]
             image = parts[3]
 
@@ -44,6 +46,12 @@ def read_train(train_path):
                     train_data[reid].append(image)
                 else:
                     train_data[reid] = [image]
+            else:
+                # Treat empty reid as singleton with unique label (using image path)
+                if image in train_data:
+                    train_data[image].append(image)
+                else:
+                    train_data[image] = [image]
     return train_data
 
 
@@ -129,6 +137,7 @@ def solve_truck_grouping_max_size_similarity(data, threshold=0.8, max_size=3):
 
     # 1. Build the Graph
     for main_img, matches in data.items():
+        print(f"Processing main image: {main_img} with {len(matches)} matches.")
         G.add_node(main_img)
         for match_img, score_str in matches:
             try:
@@ -155,6 +164,73 @@ def solve_truck_grouping_max_size_similarity(data, threshold=0.8, max_size=3):
     final_grouped = _post_process_groups_similarity(G, initial_grouped, max_size)
 
     return final_grouped
+
+
+def evaluate_grouping(pred_groups, truth_groups):
+    # 1. Create mappings from image -> group_id
+    def get_map(groups):
+        mapping = {}
+        for gid, images in groups.items():
+            for img in images:
+                mapping[img] = gid
+        return mapping
+
+    pred_map = get_map(pred_groups)
+    truth_map = get_map(truth_groups)
+
+    # 2. Identify all unique images
+    all_images = sorted(list(set(pred_map.keys()) | set(truth_map.keys())))
+
+    tp = 0
+    fp = 0
+    tn = 0
+    fn = 0
+
+    # 3. Iterate over all unique pairs
+    # This compares every pair of images to see if they are correctly grouped or separated
+    for img1, img2 in itertools.combinations(all_images, 2):
+        # Check Ground Truth
+        # Two images are "same" in truth only if both exist in the map and have same ID.
+        # Images not in the map are considered singletons (unique IDs).
+        is_same_truth = (
+            img1 in truth_map
+            and img2 in truth_map
+            and truth_map[img1] == truth_map[img2]
+        )
+
+        # Check Prediction
+        is_same_pred = (
+            img1 in pred_map and img2 in pred_map and pred_map[img1] == pred_map[img2]
+        )
+
+        if is_same_truth and is_same_pred:
+            tp += 1
+        elif not is_same_truth and is_same_pred:
+            fp += 1
+        elif is_same_truth and not is_same_pred:
+            fn += 1
+        else:
+            tn += 1
+
+    print("-" * 30)
+    print("Pairwise Grouping Evaluation:")
+    print(f"True Positives (TP): {tp}")
+    print(f"False Positives (FP): {fp}")
+    print(f"True Negatives (TN): {tn}")
+    print(f"False Negatives (FN): {fn}")
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1 = (
+        2 * (precision * recall) / (precision + recall)
+        if (precision + recall) > 0
+        else 0
+    )
+
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print(f"F1-Score: {f1:.4f}")
+    print("-" * 30)
 
 
 # --- 2. UI Class ---
@@ -342,15 +418,17 @@ if __name__ == "__main__":
     raw_data_res = read_results("results1.txt")
     group_data = remove_singles(
         solve_truck_grouping_max_size_similarity(
-            raw_data_res, threshold=0.76, max_size=5
+            raw_data_res, threshold=0.76, max_size=3
         )
     )
 
-    group_data_train = read_train(
-        "TruckReidDataset/train.txt"
+    group_data_train = remove_singles(
+        read_train("TruckReidDataset/train.txt")
     )  # Just to ensure file exists
 
-    del group_data_train["reid"]  # Remove header if present
+    group_data_train.pop("reid", None)  # Remove header if present
+
+    evaluate_grouping(group_data, group_data_train)
 
     # Ensure this script is in the folder ABOVE 'train/', or update paths in raw_data
     root = tk.Tk()
